@@ -66,6 +66,7 @@ func (rm *RouteManager) GetAll() ([]*Route, error) {
 func (rm *RouteManager) Add(route *Route) error {
 	rm.Lock()
 	defer rm.Unlock()
+	debug("RouterManager - add - route: ", route.ID, route.Source, route.Target)
 	if route.ID == "" {
 		h := sha1.New()
 		io.WriteString(h, strconv.Itoa(int(time.Now().UnixNano())))
@@ -81,6 +82,9 @@ func (rm *RouteManager) Add(route *Route) error {
 		logstream := make(chan *Log)
 		defer close(logstream)
 		switch route.Target.Type {
+		case "http", "https":
+			debug("Creating HTTP POST Streamer")
+			go httpPostStreamer(route.Target, types, logstream)
 		case "syslog":
 			go syslogStreamer(route.Target, types, logstream)
 		case "udp+json":

@@ -30,7 +30,7 @@ type Route struct {
 type Source struct {
 	ID     string   `json:"id,omitempty"`
 	Name   string   `json:"name,omitempty"`
-    Prefix string   `json:"prefix,omitempty"`
+	Prefix string   `json:"prefix,omitempty"`
 	Filter string   `json:"filter,omitempty"`
 	Types  []string `json:"types,omitempty"`
 }
@@ -42,6 +42,7 @@ func (s *Source) All() bool {
 type Target struct {
 	Type      string `json:"type"`
 	Addr      string `json:"addr"`
+	Path      string `json:"path"`
 	AppendTag string `json:"append_tag,omitempty"`
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"log/syslog"
 	"net"
@@ -56,10 +57,40 @@ func (c Colorizer) Get(key string) string {
 	return "\x1b[" + bright + "3" + strconv.Itoa(7-(i%7)) + "m"
 }
 
+func httpPostStreamer(target Target, types []string, logstream chan *Log) {
+	client := &http.Client{}
+	typestr := "," + strings.Join(types, ",") + ","
+	url := target.Type + "://" + target.Addr + target.Path
+	debug("httpPostStreamer - typestr:", typestr)
+	debug("httpPostStreamer - URL:", url)
+	for logline := range logstream {
+		//tag := logline.Name + target.AppendTag
+
+		//debug("httpPostStreamer - tag: ", tag)
+
+		//debug("httpPostStreamer - logline.ID: ", logline.ID)
+		//debug("httpPostStreamer - logline.Name: ", logline.Name)
+		//debug("httpPostStreamer - logline.Type: ", logline.Type)
+		//debug("httpPostStreamer - logline.Data: ", logline.Data)
+
+		message := fmt.Sprintf("id=%s name=%s %s", logline.ID, logline.Name, logline.Data)
+		req, err := http.NewRequest("POST", url, strings.NewReader(message))
+		if err != nil {
+			debug("httpPostStreamer - Error on http.NewRequest: ", err, url)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			debug("httpPostStreamer - Error on client.Do: ", err, url)
+		}
+		io.Copy(ioutil.Discard, resp.Body)
+		resp.Body.Close()
+	}
+}
+
 func syslogStreamer(target Target, types []string, logstream chan *Log) {
 	typestr := "," + strings.Join(types, ",") + ","
 	for logline := range logstream {
-		if typestr != ",," && !strings.Contains(typestr, logline.Type) {
+		if typestr != ",,		" && !strings.Contains(typestr, logline.Type) {
 			continue
 		}
 		tag := logline.Name + target.AppendTag
@@ -158,7 +189,7 @@ func main() {
 		u, err := url.Parse(os.Args[1])
 		assert(err, "url")
 		log.Println("routing all to " + os.Args[1])
-		router.Add(&Route{Target: Target{Type: u.Scheme, Addr: u.Host}})
+		router.Add(&Route{Target: Target{Type: u.Scheme, Addr: u.Host, Path: u.Path}})
 	}
 
 	if _, err := os.Stat(routespath); err == nil {

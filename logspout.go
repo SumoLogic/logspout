@@ -59,43 +59,6 @@ func (c Colorizer) Get(key string) string {
 	return "\x1b[" + bright + "3" + strconv.Itoa(7-(i%7)) + "m"
 }
 
-func externalIP() (string, error) {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return "", err
-	}
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 {
-			continue // interface down
-		}
-		if iface.Flags&net.FlagLoopback != 0 {
-			continue // loopback interface
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			return "", err
-		}
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-			if ip == nil || ip.IsLoopback() {
-				continue
-			}
-			ip = ip.To4()
-			if ip == nil {
-				continue // not an ipv4 address
-			}
-			return ip.String(), nil
-		}
-	}
-	return "", errors.New("No network connection?")
-}
-
 func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 	typestr := "," + strings.Join(types, ",") + ","
 
@@ -106,14 +69,6 @@ func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 		debug("httpPostStreamer - error getting hostname:", err)
 		hostname = "<unknown>"
 	}
-
-	ip, err := externalIP()
-	if err != nil {
-		debug("httpPostStreamer - error getting external IP address:", err)
-		ip = "<unknown>"
-	}
-
-	typestr := "," + strings.Join(types, ",") + ","
 
 	url := target.Type + "://" + target.Addr + target.Path
 	debug("httpPostStreamer - typestr:", typestr)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"code.google.com/p/go.net/websocket"
 	"github.com/fsouza/go-dockerclient"
@@ -57,15 +59,71 @@ func (c Colorizer) Get(key string) string {
 	return "\x1b[" + bright + "3" + strconv.Itoa(7-(i%7)) + "m"
 }
 
+func externalIP() (string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue // interface down
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // loopback interface
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return "", err
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			ip = ip.To4()
+			if ip == nil {
+				continue // not an ipv4 address
+			}
+			return ip.String(), nil
+		}
+	}
+	return "", errors.New("No network connection?")
+}
+
 func httpPostStreamer(target Target, types []string, logstream chan *Log) {
-	client := &http.Client{}
 	typestr := "," + strings.Join(types, ",") + ","
+
+	client := &http.Client{}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		debug("httpPostStreamer - error getting hostname:", err)
+		hostname = "<unknown>"
+	}
+
+	ip, err := externalIP()
+	if err != nil {
+		debug("httpPostStreamer - error getting external IP address:", err)
+		ip = "<unknown>"
+	}
+
+	typestr := "," + strings.Join(types, ",") + ","
+
 	url := target.Type + "://" + target.Addr + target.Path
 	debug("httpPostStreamer - typestr:", typestr)
 	debug("httpPostStreamer - URL:", url)
 	for logline := range logstream {
-		//tag := logline.Name + target.AppendTag
+		if typestr != ",," && !strings.Contains(typestr, logline.Type) {
+			continue
+		}
 
+		//tag := logline.Name + target.AppendTag
 		//debug("httpPostStreamer - tag: ", tag)
 
 		//debug("httpPostStreamer - logline.ID: ", logline.ID)
@@ -73,7 +131,10 @@ func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 		//debug("httpPostStreamer - logline.Type: ", logline.Type)
 		//debug("httpPostStreamer - logline.Data: ", logline.Data)
 
-		message := fmt.Sprintf("id=%s name=%s %s", logline.ID, logline.Name, logline.Data)
+		messageTime := time.Now()
+		message := fmt.Sprintf("%s hostname=%s ip=%s id=%s name=%s %s",
+			messageTime, hostname, ip, logline.ID, logline.Name,
+			logline.Data)
 		req, err := http.NewRequest("POST", url, strings.NewReader(message))
 		if err != nil {
 			debug("httpPostStreamer - Error on http.NewRequest: ", err, url)
@@ -90,7 +151,7 @@ func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 func syslogStreamer(target Target, types []string, logstream chan *Log) {
 	typestr := "," + strings.Join(types, ",") + ","
 	for logline := range logstream {
-		if typestr != ",,		" && !strings.Contains(typestr, logline.Type) {
+		if typestr != ",," && !strings.Contains(typestr, logline.Type) {
 			continue
 		}
 		tag := logline.Name + target.AppendTag

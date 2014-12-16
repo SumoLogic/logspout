@@ -66,7 +66,6 @@ func (rm *RouteManager) GetAll() ([]*Route, error) {
 func (rm *RouteManager) Add(route *Route) error {
 	rm.Lock()
 	defer rm.Unlock()
-	debug("RouterManager - add - route: ", route.ID, route.Source, route.Target)
 	if route.ID == "" {
 		h := sha1.New()
 		io.WriteString(h, strconv.Itoa(int(time.Now().UnixNano())))

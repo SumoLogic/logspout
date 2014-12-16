@@ -82,7 +82,6 @@ func (rm *RouteManager) Add(route *Route) error {
 		defer close(logstream)
 		switch route.Target.Type {
 		case "http", "https":
-			debug("Creating HTTP POST Streamer")
 			go httpPostStreamer(route.Target, types, logstream)
 		case "syslog":
 			go syslogStreamer(route.Target, types, logstream)

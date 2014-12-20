@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
+	//"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -62,7 +62,8 @@ func (c Colorizer) Get(key string) string {
 func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 	typestr := "," + strings.Join(types, ",") + ","
 
-	client := &http.Client{}
+	tr := &http.Transport{}
+	client := &http.Client{Transport: tr}
 
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -78,17 +79,17 @@ func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 			continue
 		}
 
-		//tag := logline.Name + target.AppendTag
-		//debug("httpPostStreamer - tag: ", tag)
+		tag := logline.Name + target.AppendTag
+		debug("httpPostStreamer - tag: ", tag)
 
-		//debug("httpPostStreamer - logline.ID: ", logline.ID)
-		//debug("httpPostStreamer - logline.Name: ", logline.Name)
-		//debug("httpPostStreamer - logline.Type: ", logline.Type)
-		//debug("httpPostStreamer - logline.Data: ", logline.Data)
+		debug("httpPostStreamer - logline.ID: ", logline.ID)
+		debug("httpPostStreamer - logline.Name: ", logline.Name)
+		debug("httpPostStreamer - logline.Type: ", logline.Type)
+		debug("httpPostStreamer - logline.Data: ", logline.Data)
 
 		messageTime := time.Now()
-		message := fmt.Sprintf("%s hostname=%s ip=%s id=%s name=%s %s",
-			messageTime, hostname, ip, logline.ID, logline.Name,
+		message := fmt.Sprintf("%s hostname=%s id=%s name=%s %s",
+			messageTime, hostname, logline.ID, logline.Name,
 			logline.Data)
 		req, err := http.NewRequest("POST", url, strings.NewReader(message))
 		if err != nil {

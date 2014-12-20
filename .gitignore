@@ -1,2 +1,4 @@
 build
 logspout
+sumologic-logspout
+docker-exec

@@ -60,10 +60,12 @@ func (c Colorizer) Get(key string) string {
 }
 
 func httpPostStreamer(target Target, types []string, logstream chan *Log) {
-	typestr := "," + strings.Join(types, ",") + ","
 
-	tr := &http.Transport{}
-	client := &http.Client{Transport: tr}
+	url := target.Type + "://" + target.Addr + target.Path
+	debug("httpPostStreamer - URL:", url)
+
+	typestr := "," + strings.Join(types, ",") + ","
+	debug("httpPostStreamer - typestr:", typestr)
 
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -71,21 +73,13 @@ func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 		hostname = "<unknown>"
 	}
 
-	url := target.Type + "://" + target.Addr + target.Path
-	debug("httpPostStreamer - typestr:", typestr)
-	debug("httpPostStreamer - URL:", url)
+	tr := &http.Transport{}
+	client := &http.Client{Transport: tr}
+
 	for logline := range logstream {
 		if typestr != ",," && !strings.Contains(typestr, logline.Type) {
 			continue
 		}
-
-		tag := logline.Name + target.AppendTag
-		debug("httpPostStreamer - tag: ", tag)
-
-		debug("httpPostStreamer - logline.ID: ", logline.ID)
-		debug("httpPostStreamer - logline.Name: ", logline.Name)
-		debug("httpPostStreamer - logline.Type: ", logline.Type)
-		debug("httpPostStreamer - logline.Data: ", logline.Data)
 
 		messageTime := time.Now()
 		message := fmt.Sprintf("%s hostname=%s id=%s name=%s %s",
@@ -95,6 +89,7 @@ func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 		if err != nil {
 			debug("httpPostStreamer - Error on http.NewRequest: ", err, url)
 		}
+
 		resp, err := client.Do(req)
 		if err != nil {
 			debug("httpPostStreamer - Error on client.Do: ", err, url)

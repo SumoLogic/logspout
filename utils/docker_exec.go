@@ -25,12 +25,12 @@ func main() {
 		AttachStdin:  false,
 		AttachStdout: true,
 		AttachStderr: true,
-		Tty:          true,
-		Cmd:          []string{"tail", "-F", "/opt/SumoCollector/logs/collector.log"},
-		Container:    "sumo-logic-file-collector",
+		Tty:          false,
+		Cmd:          []string{"ls", "-la"},
+		Container:    "daemon_dave",
+		//Cmd:          []string{"tail", "-F", "/opt/SumoCollector/logs/collector.log"},
+		//Container:    "sumo-logic-file-collector",
 	}
-	//Cmd:          []string{"ls", "-la", "/"},
-	//Container:    "daemon_dave",
 
 	execObj, err := client.CreateExec(config)
 	assert(err, "CreateExec")
@@ -44,8 +44,7 @@ func main() {
 		InputStream:  nil,
 		OutputStream: outwr,
 		ErrorStream:  errwr,
-		RawTerminal:  true,
-		//Success:      success,
+		RawTerminal:  false,
 	}
 
 	// Start the execution

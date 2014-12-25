@@ -4,13 +4,14 @@ import (
 	"bufio"
 	"github.com/fsouza/go-dockerclient"
 	"io"
+	"io/ioutil"
 	"log"
-	"sync"
+	"time"
 )
 
 func assert(err error, context string) {
 	if err != nil {
-		log.Fatal(context+": ", err)
+		log.Print(context+": ", err)
 	}
 }
 
@@ -22,25 +23,24 @@ func main() {
 
 	// Create the execution object
 	config := docker.CreateExecOptions{
-		AttachStdin:  false,
+		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
 		Tty:          false,
-		//Cmd:          []string{"ls", "-la"},
-		//Container:    "daemon_dave",
-		Cmd:       []string{"tail", "-F", "/opt/SumoCollector/logs/collector.log"},
-		Container: "sumo-logic-file-collector",
+		Cmd:          []string{"/bin/sh", "-c", "cat - > /shizzle"},
+		Container:    "sumo-logic-file-collector",
 	}
 	execObj, err := client.CreateExec(config)
 	assert(err, "CreateExec")
 
 	// Setup the execution options
+	inrd, inwr := io.Pipe()
 	outrd, outwr := io.Pipe()
 	errrd, errwr := io.Pipe()
 	opts := docker.StartExecOptions{
 		Detach:       false,
 		Tty:          false,
-		InputStream:  nil,
+		InputStream:  inrd,
 		OutputStream: outwr,
 		ErrorStream:  errwr,
 		RawTerminal:  false,
@@ -55,10 +55,10 @@ func main() {
 	// Create a stream pump
 	NewStreamPump(outrd, errrd)
 
-	// Wait, wait, wait
-	var wg sync.WaitGroup
-	wg.Add(1)
-	wg.Wait()
+	file, err := ioutil.ReadFile("schnitzel")
+	inwr.Write(file)
+	inwr.Close()
+	time.Sleep(100 * time.Second)
 }
 
 type StreamPump struct {

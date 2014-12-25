@@ -2,3 +2,5 @@ build
 logspout
 sumologic-logspout
 docker_exec
+docker_exec2
+schnitzel

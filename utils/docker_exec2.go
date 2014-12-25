@@ -6,29 +6,31 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"time"
+	"os"
 )
 
 func assert(err error, context string) {
 	if err != nil {
-		log.Print(context+": ", err)
+		log.Printf("Failed assertion - %s: %s", context, err)
 	}
 }
 
-func main() {
+func dockerExec(client *docker.Client, container string, cmd []string,
+	buf []byte, outChannel *chan string, errChannel *chan string) {
 
-	// Create the Docker client
-	client, err := docker.NewClient("unix:///var/run/docker.sock")
-	assert(err, "docker")
+	// Figure out whether we need stdin
+	attachStdin := buf != nil
+	attachOut := outChannel != nil
+	attachErr := errChannel != nil
 
 	// Create the execution object
 	config := docker.CreateExecOptions{
-		AttachStdin:  true,
-		AttachStdout: true,
-		AttachStderr: true,
+		AttachStdin:  attachStdin,
+		AttachStdout: attachOut,
+		AttachStderr: attachErr,
 		Tty:          false,
-		Cmd:          []string{"/bin/sh", "-c", "cat - > /shizzle"},
-		Container:    "sumo-logic-file-collector",
+		Cmd:          cmd,
+		Container:    container,
 	}
 	execObj, err := client.CreateExec(config)
 	assert(err, "CreateExec")
@@ -47,28 +49,35 @@ func main() {
 	}
 
 	// Start the execution
+	success := make(chan struct{})
 	go func() {
 		err := client.StartExec(execObj.ID, opts)
 		assert(err, "StartExec")
+		close(success)
 	}()
 
-	// Create a stream pump
-	NewStreamPump(outrd, errrd)
+	// Make sure we capture all output
+	NewStreamPump(outrd, errrd, outChannel, errChannel)
 
-	file, err := ioutil.ReadFile("schnitzel")
-	inwr.Write(file)
-	inwr.Close()
-	time.Sleep(100 * time.Second)
+	// Write into stdin
+	if attachStdin {
+		inwr.Write(buf)
+		inwr.Close()
+	}
+
+	// Wait for the execution to finish
+	<-success
 }
 
 type StreamPump struct {
 	Name string
 }
 
-func NewStreamPump(stdout, stderr io.Reader) *StreamPump {
+func NewStreamPump(stdout, stderr io.Reader,
+	outChannel *chan string, errChannel *chan string) *StreamPump {
+
 	obj := &StreamPump{}
-	pump := func(name string, source io.Reader) {
-		log.Printf("pump: %s, starting\n", name)
+	pump := func(name string, source io.Reader, channel *chan string) {
 		buf := bufio.NewReader(source)
 		for {
 			data, err := buf.ReadString('\n')
@@ -78,10 +87,42 @@ func NewStreamPump(stdout, stderr io.Reader) *StreamPump {
 				}
 				return
 			}
-			log.Printf("pump: %s - %s", name, data)
+			//log.Printf("pump: %s - %s", name, data)
+			*channel <- data
 		}
 	}
-	go pump("stdout", stdout)
-	go pump("stderr", stderr)
+	go pump("stdout", stdout, outChannel)
+	go pump("stderr", stderr, errChannel)
 	return obj
+}
+
+func main() {
+
+	// Create the Docker client
+	client, err := docker.NewClient("unix:///var/run/docker.sock")
+	assert(err, "docker")
+
+	// Setup the file drop
+	container := os.Args[1]
+	dropcmd := []string{"/bin/sh", "-c", "cat - > /shizzle"}
+	file, err := ioutil.ReadFile("schnitzel")
+	assert(err, "ReadFile")
+	dockerExec(client, container, dropcmd, file, nil, nil)
+
+	// Execute the file
+	tailcmd := []string{"/bin/sh", "-c", "chmod o+x /shizzle && /shizzle"}
+	outChannel := make(chan string)
+	go func() {
+		for line := range outChannel {
+			log.Printf("stdout: %s", line)
+		}
+	}()
+	errChannel := make(chan string)
+	go func() {
+		for line := range errChannel {
+			log.Printf("stderr: %s", line)
+		}
+	}()
+	dockerExec(client, container, tailcmd, nil, &outChannel, &errChannel)
+
 }

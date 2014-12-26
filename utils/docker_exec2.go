@@ -18,12 +18,10 @@ func assert(err error, context string) {
 func dockerExec(client *docker.Client, container string, cmd []string,
 	buf []byte, outChannel *chan string, errChannel *chan string) {
 
-	// Figure out whether we need stdin
 	attachStdin := buf != nil
 	attachOut := outChannel != nil
 	attachErr := errChannel != nil
 
-	// Create the execution object
 	config := docker.CreateExecOptions{
 		AttachStdin:  attachStdin,
 		AttachStdout: attachOut,
@@ -35,7 +33,6 @@ func dockerExec(client *docker.Client, container string, cmd []string,
 	execObj, err := client.CreateExec(config)
 	assert(err, "CreateExec")
 
-	// Setup the execution options
 	inrd, inwr := io.Pipe()
 	outrd, outwr := io.Pipe()
 	errrd, errwr := io.Pipe()
@@ -48,7 +45,6 @@ func dockerExec(client *docker.Client, container string, cmd []string,
 		RawTerminal:  false,
 	}
 
-	// Start the execution
 	success := make(chan struct{})
 	go func() {
 		err := client.StartExec(execObj.ID, opts)
@@ -56,27 +52,24 @@ func dockerExec(client *docker.Client, container string, cmd []string,
 		close(success)
 	}()
 
-	// Make sure we capture all output
-	NewStreamPump(outrd, errrd, outChannel, errChannel)
+	newStreamPump(outrd, errrd, outChannel, errChannel)
 
-	// Write into stdin
 	if attachStdin {
 		inwr.Write(buf)
 		inwr.Close()
 	}
 
-	// Wait for the execution to finish
 	<-success
 }
 
-type StreamPump struct {
+type streamPump struct {
 	Name string
 }
 
-func NewStreamPump(stdout, stderr io.Reader,
-	outChannel *chan string, errChannel *chan string) *StreamPump {
+func newStreamPump(stdout, stderr io.Reader,
+	outChannel *chan string, errChannel *chan string) *streamPump {
 
-	obj := &StreamPump{}
+	obj := &streamPump{}
 	pump := func(name string, source io.Reader, channel *chan string) {
 		buf := bufio.NewReader(source)
 		for {
@@ -87,7 +80,6 @@ func NewStreamPump(stdout, stderr io.Reader,
 				}
 				return
 			}
-			//log.Printf("pump: %s - %s", name, data)
 			*channel <- data
 		}
 	}
@@ -96,33 +88,32 @@ func NewStreamPump(stdout, stderr io.Reader,
 	return obj
 }
 
+func consume(tag string, channel *chan string) {
+	for line := range *channel {
+		log.Printf("%s: %s", tag, line)
+	}
+}
+
 func main() {
 
-	// Create the Docker client
+	if len(os.Args) < 2 {
+		log.Panicf("No container name specified\n")
+	}
+
 	client, err := docker.NewClient("unix:///var/run/docker.sock")
 	assert(err, "docker")
 
-	// Setup the file drop
 	container := os.Args[1]
 	dropcmd := []string{"/bin/sh", "-c", "cat - > /shizzle"}
 	file, err := ioutil.ReadFile("schnitzel")
 	assert(err, "ReadFile")
 	dockerExec(client, container, dropcmd, file, nil, nil)
 
-	// Execute the file
 	tailcmd := []string{"/bin/sh", "-c", "chmod o+x /shizzle && /shizzle"}
 	outChannel := make(chan string)
-	go func() {
-		for line := range outChannel {
-			log.Printf("stdout: %s", line)
-		}
-	}()
+	go consume("stdout", &outChannel)
 	errChannel := make(chan string)
-	go func() {
-		for line := range errChannel {
-			log.Printf("stderr: %s", line)
-		}
-	}()
+	go consume("stderr", &errChannel)
 	dockerExec(client, container, tailcmd, nil, &outChannel, &errChannel)
 
 }

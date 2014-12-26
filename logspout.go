@@ -191,6 +191,7 @@ func main() {
 	port := getopt("PORT", "8000")
 	endpoint := getopt("DOCKER_HOST", "unix:///var/run/docker.sock")
 	routespath := getopt("ROUTESPATH", "/var/lib/logspout")
+	eventlog := getopt("EVENTLOG", "") != ""
 
 	client, err := docker.NewClient(endpoint)
 	assert(err, "docker")

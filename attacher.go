@@ -2,12 +2,13 @@ package main
 
 import (
 	"bufio"
-	"github.com/fsouza/go-dockerclient"
 	"io"
 	"log"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fsouza/go-dockerclient"
 )
 
 type AttachManager struct {
@@ -39,8 +40,6 @@ func NewAttachManager(client *docker.Client) *AttachManager {
 				go m.attach(msg.ID[:12])
 			}
 			for eventListener, _ := range m.eventListeners {
-				//data := fmt.Sprintf("event=%s from=%s",
-				//	msg.Status, msg.From)
 				log := &Log{
 					Time: time.Unix(msg.Time, 0),
 					ID:   msg.ID,

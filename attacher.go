@@ -2,26 +2,29 @@ package main
 
 import (
 	"bufio"
+	//"encoding/json"
+	"fmt"
+	"github.com/fsouza/go-dockerclient"
 	"io"
 	"log"
 	"strings"
 	"sync"
-
-	"github.com/fsouza/go-dockerclient"
 )
 
 type AttachManager struct {
 	sync.Mutex
-	attached map[string]*LogPump
-	channels map[chan *AttachEvent]struct{}
-	client   *docker.Client
+	attached       map[string]*LogPump
+	channels       map[chan *AttachEvent]struct{}
+	eventListeners map[chan *Log]struct{}
+	client         *docker.Client
 }
 
 func NewAttachManager(client *docker.Client) *AttachManager {
 	m := &AttachManager{
-		attached: make(map[string]*LogPump),
-		channels: make(map[chan *AttachEvent]struct{}),
-		client:   client,
+		attached:       make(map[string]*LogPump),
+		channels:       make(map[chan *AttachEvent]struct{}),
+		eventListeners: make(map[chan *Log]struct{}),
+		client:         client,
 	}
 	containers, err := client.ListContainers(docker.ListContainersOptions{})
 	assert(err, "attacher")
@@ -35,6 +38,18 @@ func NewAttachManager(client *docker.Client) *AttachManager {
 			debug("event:", msg.ID[:12], msg.Status)
 			if msg.Status == "start" || msg.Status == "restart" {
 				go m.attach(msg.ID[:12])
+			}
+			for eventListener, _ := range m.eventListeners {
+				debug("Forwarding event", msg, "to listener", eventListener)
+				data := fmt.Sprintf("event status: %s, from: '%s', time: '%s",
+					msg.Status, msg.From)
+				// TODO: add time
+				log := &Log{
+					Data: data,
+					ID:   msg.ID,
+					Name: "...",
+					Type: "event"}
+				eventListener <- log
 			}
 		}
 		log.Fatal("ruh roh") // todo: loop?
@@ -112,19 +127,35 @@ func (m *AttachManager) removeListener(ch chan *AttachEvent) {
 	delete(m.channels, ch)
 }
 
+func (m *AttachManager) addEventListener(ch chan *Log) {
+	m.Lock()
+	defer m.Unlock()
+	m.eventListeners[ch] = struct{}{}
+}
+
+func (m *AttachManager) removeEventListener(ch chan *Log) {
+	m.Lock()
+	defer m.Unlock()
+	delete(m.eventListeners, ch)
+}
+
 func (m *AttachManager) Get(id string) *LogPump {
 	m.Lock()
 	defer m.Unlock()
 	return m.attached[id]
 }
 
-func (m *AttachManager) Listen(source *Source, logstream chan *Log, closer <-chan bool) {
+func (m *AttachManager) Listen(source *Source, logstream chan *Log,
+	closer <-chan bool, eventstream chan *Log) {
+
 	if source == nil {
 		source = new(Source)
 	}
 	events := make(chan *AttachEvent)
 	m.addListener(events)
 	defer m.removeListener(events)
+	m.addEventListener(eventstream)
+	defer m.removeEventListener(eventstream)
 	for {
 		select {
 		case event := <-events:

@@ -88,7 +88,7 @@ func (rm *RouteManager) Add(route *Route) error {
 		case "udp+json":
 			go udpStreamer(route.Target, types, logstream)
 		}
-		rm.attacher.Listen(route.Source, logstream, route.closer)
+		rm.attacher.Listen(route.Source, logstream, route.closer, logstream)
 	}()
 	if rm.persistor != nil {
 		if err := rm.persistor.Add(route); err != nil {

@@ -198,6 +198,10 @@ func main() {
 	attacher := NewAttachManager(client)
 	router := NewRouteManager(attacher)
 
+	if eventlog {
+		debug("event logging enabled")
+	}
+
 	if len(os.Args) > 1 {
 		u, err := url.Parse(os.Args[1])
 		assert(err, "url")
@@ -241,7 +245,7 @@ func main() {
 			closer = w.(http.CloseNotifier).CloseNotify()
 		}
 
-		attacher.Listen(source, logstream, closer)
+		attacher.Listen(source, logstream, closer, logstream)
 	})
 
 	m.Get("/routes", func(w http.ResponseWriter, req *http.Request) {

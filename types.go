@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"time"
 )
 
 type AttachEvent struct {
@@ -14,10 +15,12 @@ type AttachEvent struct {
 }
 
 type Log struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Type string `json:"type"`
-	Data string `json:"data"`
+	Time     time.Time   `json:"time"`
+	Hostname string      `json:"hostname"`
+	ID       string      `json:"id"`
+	Name     string      `json:"name,omitempty"`
+	Type     string      `json:"type"`
+	Data     interface{} `json:"data"`
 }
 
 type Route struct {

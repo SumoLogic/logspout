@@ -2,13 +2,12 @@ package main
 
 import (
 	"bufio"
-	//"encoding/json"
-	"fmt"
 	"github.com/fsouza/go-dockerclient"
 	"io"
 	"log"
 	"strings"
 	"sync"
+	"time"
 )
 
 type AttachManager struct {
@@ -40,15 +39,13 @@ func NewAttachManager(client *docker.Client) *AttachManager {
 				go m.attach(msg.ID[:12])
 			}
 			for eventListener, _ := range m.eventListeners {
-				debug("Forwarding event", msg, "to listener", eventListener)
-				data := fmt.Sprintf("event status: %s, from: '%s', time: '%s",
-					msg.Status, msg.From)
-				// TODO: add time
+				//data := fmt.Sprintf("event=%s from=%s",
+				//	msg.Status, msg.From)
 				log := &Log{
-					Data: data,
+					Time: time.Unix(msg.Time, 0),
 					ID:   msg.ID,
-					Name: "...",
-					Type: "event"}
+					Type: "event",
+					Data: msg}
 				eventListener <- log
 			}
 		}
@@ -209,6 +206,7 @@ func NewLogPump(stdout, stderr io.Reader, id, name string) *LogPump {
 				ID:   id,
 				Name: name,
 				Type: typ,
+				Time: time.Now(),
 			})
 		}
 	}

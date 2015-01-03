@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
-	//"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -14,7 +14,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"code.google.com/p/go.net/websocket"
 	"github.com/fsouza/go-dockerclient"
@@ -59,6 +58,19 @@ func (c Colorizer) Get(key string) string {
 	return "\x1b[" + bright + "3" + strconv.Itoa(7-(i%7)) + "m"
 }
 
+func logDataToString(data interface{}) string {
+	switch d := data.(type) {
+	case string:
+		return d
+	default:
+		jsonData, err := json.Marshal(d)
+		if err != nil {
+			debug("httpPostStreamer - Error encoding JSON for data: ", jsonData)
+		}
+		return string(jsonData)
+	}
+}
+
 func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 
 	url := target.Type + "://" + target.Addr + target.Path
@@ -81,11 +93,16 @@ func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 			continue
 		}
 
-		messageTime := time.Now()
-		message := fmt.Sprintf("%s hostname=%s id=%s name=%s %s",
-			messageTime, hostname, logline.ID, logline.Name,
-			logline.Data)
-		req, err := http.NewRequest("POST", url, strings.NewReader(message))
+		logline.Hostname = hostname
+		message, err := json.Marshal(logline)
+		if err != nil {
+			debug("httpPostStreamer - Error encoding JSON: ", err)
+		}
+
+		debug("message:", string(message))
+
+		//req, err := http.NewRequest("POST", url, strings.NewReader(message))
+		req, err := http.NewRequest("POST", url, bytes.NewReader(message))
 		if err != nil {
 			debug("httpPostStreamer - Error on http.NewRequest: ", err, url)
 		}
@@ -108,7 +125,7 @@ func syslogStreamer(target Target, types []string, logstream chan *Log) {
 		tag := logline.Name + target.AppendTag
 		remote, err := syslog.Dial("udp", target.Addr, syslog.LOG_USER|syslog.LOG_INFO, tag)
 		assert(err, "syslog")
-		io.WriteString(remote, logline.Data)
+		io.WriteString(remote, logDataToString(logline.Data))
 	}
 }
 
@@ -175,11 +192,12 @@ func httpStreamer(w http.ResponseWriter, req *http.Request, logstream chan *Log,
 					)))
 				} else {
 					w.Write([]byte(fmt.Sprintf(
-						"%"+strconv.Itoa(nameWidth)+"s|%s\n", logline.Name, logline.Data,
+						"%"+strconv.Itoa(nameWidth)+"s|%s\n", logline.Name,
+						logDataToString(logline.Data),
 					)))
 				}
 			} else {
-				w.Write(append([]byte(logline.Data), '\n'))
+				w.Write(append([]byte(logDataToString(logline.Data)), '\n'))
 			}
 		}
 		w.(http.Flusher).Flush()

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -89,11 +88,10 @@ func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 	tr := &http.Transport{}
 	client := &http.Client{Transport: tr}
 
-	timeout := 60000 * time.Millisecond
-	capacity := 128
+	timeout := 1000 * time.Millisecond
 	timer := time.NewTimer(timeout)
+	capacity := 128
 	buffer := make([]*Log, 0, capacity)
-	counter := 0
 	for {
 		select {
 		case logline := <-logstream:
@@ -102,58 +100,56 @@ func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 			}
 			logline.Hostname = hostname
 			buffer = append(buffer, logline)
-			counter++
-			if counter >= cap(buffer) {
-				debug("httpPostStreamer - buffer full")
-				flushHttp(buffer, client, url)
-				buffer = make([]*Log, 0, capacity)
-				timer.Stop()
-				select {
-				case <-timer.C:
-				default:
-				}
-				timer.Reset(timeout)
+			if len(buffer) >= cap(buffer) {
+				//debug("httpPostStreamer - buffer full")
+				buffer = flushHttp(buffer, client, url, timer, timeout, capacity)
 			}
 		case <-timer.C:
-			debug("httpPostStreamer - timer expired, buffer length:", len(buffer))
-			flushHttp(buffer, client, url)
-			counter = 0
-			buffer = make([]*Log, 0, capacity)
-			timer.Stop()
-			select {
-			case <-timer.C:
-			default:
-			}
-			timer.Reset(timeout)
+			//debug("httpPostStreamer - timer expired, buffer length:", len(buffer))
+			buffer = flushHttp(buffer, client, url, timer, timeout, capacity)
 		}
 	}
 }
 
-func flushHttp(buffer []*Log, client *http.Client, url string) {
-	messages := make([]byte, 8*1024)
-	for l := range buffer {
-		logline := buffer[l]
-		message, err := json.Marshal(logline)
-		if err != nil {
-			debug("httpPostStreamer - Error encoding JSON: ", err)
-			continue
+func flushHttp(buffer []*Log, client *http.Client, url string,
+	timer *time.Timer, timeout time.Duration, capacity int) []*Log {
+
+	if len(buffer) > 0 {
+
+		messages := make([]string, len(buffer))
+		for l := range buffer {
+			logline := buffer[l]
+			message, err := json.Marshal(logline)
+			if err != nil {
+				debug("httpPostStreamer - Error encoding JSON: ", err)
+				continue
+			}
+			messages = append(messages, string(message))
 		}
-		messages = append(messages, message...)
-		messages = append(messages, "\n"...)
+
+		payload := strings.Join(messages, "\n")
+		debug("messages:", payload)
+		req, err := http.NewRequest("POST", url, strings.NewReader(payload))
+		if err != nil {
+			debug("httpPostStreamer - Error on http.NewRequest: ", err, url)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			debug("httpPostStreamer - Error on client.Do: ", err, url)
+		}
+		io.Copy(ioutil.Discard, resp.Body)
+		resp.Body.Close()
 	}
 
-	debug("messages:\n", string(messages))
-	req, err := http.NewRequest("POST", url, bytes.NewReader(messages))
-	if err != nil {
-		debug("httpPostStreamer - Error on http.NewRequest: ", err, url)
+	buffer = make([]*Log, 0, capacity)
+	timer.Stop()
+	select {
+	case <-timer.C:
+	default:
 	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		debug("httpPostStreamer - Error on client.Do: ", err, url)
-	}
-	io.Copy(ioutil.Discard, resp.Body)
-	resp.Body.Close()
+	timer.Reset(timeout)
+	return buffer
 }
 
 func syslogStreamer(target Target, types []string, logstream chan *Log) {

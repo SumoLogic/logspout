@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"code.google.com/p/go.net/websocket"
 	"github.com/fsouza/go-dockerclient"
@@ -88,32 +89,71 @@ func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 	tr := &http.Transport{}
 	client := &http.Client{Transport: tr}
 
-	for logline := range logstream {
-		if typestr != ",," && !strings.Contains(typestr, logline.Type) {
-			continue
+	timeout := 60000 * time.Millisecond
+	capacity := 128
+	timer := time.NewTimer(timeout)
+	buffer := make([]*Log, 0, capacity)
+	counter := 0
+	for {
+		select {
+		case logline := <-logstream:
+			if typestr != ",," && !strings.Contains(typestr, logline.Type) {
+				continue
+			}
+			logline.Hostname = hostname
+			buffer = append(buffer, logline)
+			counter++
+			if counter >= cap(buffer) {
+				debug("httpPostStreamer - buffer full")
+				flushHttp(buffer, client, url)
+				buffer = make([]*Log, 0, capacity)
+				timer.Stop()
+				select {
+				case <-timer.C:
+				default:
+				}
+				timer.Reset(timeout)
+			}
+		case <-timer.C:
+			debug("httpPostStreamer - timer expired, buffer length:", len(buffer))
+			flushHttp(buffer, client, url)
+			counter = 0
+			buffer = make([]*Log, 0, capacity)
+			timer.Stop()
+			select {
+			case <-timer.C:
+			default:
+			}
+			timer.Reset(timeout)
 		}
+	}
+}
 
-		logline.Hostname = hostname
+func flushHttp(buffer []*Log, client *http.Client, url string) {
+	messages := make([]byte, 8*1024)
+	for l := range buffer {
+		logline := buffer[l]
 		message, err := json.Marshal(logline)
 		if err != nil {
 			debug("httpPostStreamer - Error encoding JSON: ", err)
+			continue
 		}
-
-		debug("message:", string(message))
-
-		//req, err := http.NewRequest("POST", url, strings.NewReader(message))
-		req, err := http.NewRequest("POST", url, bytes.NewReader(message))
-		if err != nil {
-			debug("httpPostStreamer - Error on http.NewRequest: ", err, url)
-		}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			debug("httpPostStreamer - Error on client.Do: ", err, url)
-		}
-		io.Copy(ioutil.Discard, resp.Body)
-		resp.Body.Close()
+		messages = append(messages, message...)
+		messages = append(messages, "\n"...)
 	}
+
+	debug("messages:\n", string(messages))
+	req, err := http.NewRequest("POST", url, bytes.NewReader(messages))
+	if err != nil {
+		debug("httpPostStreamer - Error on http.NewRequest: ", err, url)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		debug("httpPostStreamer - Error on client.Do: ", err, url)
+	}
+	io.Copy(ioutil.Discard, resp.Body)
+	resp.Body.Close()
 }
 
 func syslogStreamer(target Target, types []string, logstream chan *Log) {

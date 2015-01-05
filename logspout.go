@@ -71,6 +71,11 @@ func logDataToString(data interface{}) string {
 	}
 }
 
+func dial(netw, addr string) (net.Conn, error) {
+	debug("dial", netw, addr)
+	return net.Dial(netw, addr)
+}
+
 func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 
 	url := target.Type + "://" + target.Addr + target.Path
@@ -86,11 +91,12 @@ func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 	}
 
 	tr := &http.Transport{}
+	tr.Dial = dial
 	client := &http.Client{Transport: tr}
 
 	timeout := 1000 * time.Millisecond
 	timer := time.NewTimer(timeout)
-	capacity := 128
+	capacity := 10
 	buffer := make([]*Log, 0, capacity)
 	for {
 		select {
@@ -101,53 +107,60 @@ func httpPostStreamer(target Target, types []string, logstream chan *Log) {
 			logline.Hostname = hostname
 			buffer = append(buffer, logline)
 			if len(buffer) >= cap(buffer) {
-				//debug("httpPostStreamer - buffer full")
-				buffer = flushHttp(buffer, client, url, timer, timeout, capacity)
+				buffer = flushHttp("full", buffer, client, url, timer, timeout, capacity)
 			}
 		case <-timer.C:
-			//debug("httpPostStreamer - timer expired, buffer length:", len(buffer))
-			buffer = flushHttp(buffer, client, url, timer, timeout, capacity)
+			buffer = flushHttp("timeout", buffer, client, url, timer, timeout, capacity)
 		}
 	}
 }
 
-func flushHttp(buffer []*Log, client *http.Client, url string,
+func flushHttp(reason string, buffer []*Log, client *http.Client, url string,
 	timer *time.Timer, timeout time.Duration, capacity int) []*Log {
 
-	if len(buffer) > 0 {
+	timer.Stop()
+	select {
+	case <-timer.C:
+	default:
+	}
 
-		messages := make([]string, len(buffer))
+	if len(buffer) > 0 {
+		messages := make([]string, 0, len(buffer))
 		for l := range buffer {
 			logline := buffer[l]
 			message, err := json.Marshal(logline)
 			if err != nil {
-				debug("httpPostStreamer - Error encoding JSON: ", err)
+				debug("flushHttp - Error encoding JSON: ", err)
 				continue
 			}
 			messages = append(messages, string(message))
 		}
 
 		payload := strings.Join(messages, "\n")
-		debug("messages:", payload)
-		req, err := http.NewRequest("POST", url, strings.NewReader(payload))
-		if err != nil {
-			debug("httpPostStreamer - Error on http.NewRequest: ", err, url)
-		}
+		//debug("messages:", payload)
 
-		resp, err := client.Do(req)
-		if err != nil {
-			debug("httpPostStreamer - Error on client.Do: ", err, url)
-		}
-		io.Copy(ioutil.Discard, resp.Body)
-		resp.Body.Close()
+		go func() {
+			req, err := http.NewRequest("POST", url, strings.NewReader(payload))
+			if err != nil {
+				debug("flushHttp - Error on http.NewRequest: ", err, url)
+			}
+
+			start := time.Now()
+			resp, err := client.Do(req)
+			if err != nil {
+				debug("flushHttp - Error on client.Do: ", err, url)
+			}
+			//timeSend := time.Since(start)
+			io.Copy(ioutil.Discard, resp.Body)
+			resp.Body.Close()
+			timeAll := time.Since(start)
+			//debug("flushHttp - Sent", len(messages), " messages in", timeSend)
+			debug("flushHttp -", reason, "- Sent and closed",
+				len(messages), " messages in", timeAll)
+		}()
 	}
 
 	buffer = make([]*Log, 0, capacity)
-	timer.Stop()
-	select {
-	case <-timer.C:
-	default:
-	}
 	timer.Reset(timeout)
 	return buffer
 }

@@ -161,6 +161,7 @@ func flushHttp(reason string, buffer []*Log, client *http.Client, url string,
 	}
 
 	buffer = make([]*Log, 0, capacity)
+	//buffer = nil
 	timer.Reset(timeout)
 	return buffer
 }
